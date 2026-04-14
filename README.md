@@ -51,6 +51,7 @@ python server.py
 Server starts at: `http://127.0.0.1:8080`
 
 ### Run automated tests
+Note: Because test_request.py automatically starts its own server instance, ensure you have stopped server.py to avoid any port conflicts.
 ```bash
 python test_request.py
 ```
