@@ -4,15 +4,6 @@
 ## Overview
 A FastAPI webhook pipeline that receives player bug reports, validates and processes them, generates a professional AI summary using the Gemini API, and appends the results to a Google Sheet.
 
-## Pipeline Architecture
-Matches the HW1 required architecture:
-
-```
-Trigger (Webhook POST)
-    → Processing Function  (trim whitespace, validate, generate timestamp)
-    → AI Completion        (Gemini gemini-2.5-flash: 10-word technical summary)
-    → External API         (Google Sheets API: append row to SE445_Bug_Reports)
-```
 
 ## Files
 | File | Purpose |
@@ -100,8 +91,3 @@ Visit: [http://127.0.0.1:8080/docs](http://127.0.0.1:8080/docs)
 **Validation error (400):** Returned when `bug_description` is ≤ 10 characters.  
 **Schema error (422):** Returned when required fields are missing.
 
-## HW1 Success Criteria Checklist
-- [x] Trigger fires on HTTP POST `/webhook/bug-report`
-- [x] First function (Processing Node) receives data and validates it correctly
-- [x] GitHub repo accessible with primary logic file (`server.py`) present
-- [x] Pipeline follows: `Trigger → Processing Function → External API → AI Completion`
