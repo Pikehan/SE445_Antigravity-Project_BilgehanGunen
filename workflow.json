@@ -1,0 +1,44 @@
+{
+  "name": "Player Bug Report Categorizer",
+  "description": "SE445 HW1 – Webhook pipeline that receives player bug reports, processes them, generates an AI summary, and logs results to Google Sheets.",
+  "nodes": [
+    {
+      "id": "trigger_webhook",
+      "type": "Webhook",
+      "description": "Receives HTTP POST requests at /webhook/bug-report with player_id, game_version, and bug_description fields",
+      "parameters": {
+        "method": "POST",
+        "path": "/webhook/bug-report"
+      }
+    },
+    {
+      "id": "process_node",
+      "type": "Processing Function",
+      "description": "Trims whitespace from all string fields, validates bug_description is longer than 10 characters, generates an ISO-8601 UTC timestamp",
+      "input": ["trigger_webhook"],
+      "parameters": {
+        "action": "validateAndFormat"
+      }
+    },
+    {
+      "id": "ai_completion",
+      "type": "AI Completion",
+      "description": "Calls the Google Gemini API (gemini-2.5-flash) to generate a professional 10-word technical summary of the bug report",
+      "input": ["process_node"],
+      "parameters": {
+        "model": "gemini-2.5-flash",
+        "system_prompt": "Act as a Lead QA Tester. Summarize this player bug report into a professional, exactly 10-word technical summary."
+      }
+    },
+    {
+      "id": "actuation_sheets",
+      "type": "External API (Google Sheets)",
+      "description": "Authenticates via OAuth and appends a new row to the 'SE445_Bug_Reports' Google Sheet containing timestamp, player_id, game_version, raw description, and AI summary",
+      "input": ["ai_completion"],
+      "parameters": {
+        "spreadsheet_name": "SE445_Bug_Reports",
+        "columns": ["Timestamp", "Player ID", "Version", "Raw Description", "AI Summary"]
+      }
+    }
+  ]
+}

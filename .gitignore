@@ -1,0 +1,23 @@
+# --- Secret & Credential Files (NEVER commit these) ---
+.env
+token.json
+client_secret_*.json
+credentials.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+
+# --- Virtual Environment ---
+.venv/
+venv/
+env/
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
