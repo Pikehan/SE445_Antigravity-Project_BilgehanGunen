@@ -1,8 +1,9 @@
-import subprocess
 import time
 import requests
 import sys
 import os
+import threading
+import uvicorn
 
 # Force UTF-8 output so emoji and special chars work on Windows
 sys.stdout.reconfigure(encoding="utf-8")
@@ -10,19 +11,15 @@ sys.stdout.reconfigure(encoding="utf-8")
 # Resolve absolute paths so it works no matter where you run it from
 DIR = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(DIR, ".env")
-server_path = os.path.join(DIR, "server.py")
 
 # Create mock .env just in case so load_dotenv doesn't complain
 if not os.path.exists(env_path):
     with open(env_path, "w") as f:
         f.write('GEMINI_API_KEY="MOCK_KEY_FOR_TEST"\n')
 
-import threading
-import uvicorn
-
 # Add directory to sys.path so we can import from server.py directly
 sys.path.append(DIR)
-from server import app
+from server import app  # noqa: E402
 
 PORT = 8080
 BASE_URL = f"http://127.0.0.1:{PORT}/webhook/bug-report"
@@ -45,62 +42,71 @@ try:
         {
             "name": "✅  VALID   — Normal bug report",
             "payload": {
-                "player_id": "P-4921",
-                "game_version": "v1.2.4",
-                "bug_description": "When I try to jump on the main platform while holding the red key, the specific item disappears and my character gets stuck in the floor."
+                "name": "P-4921",
+                "email": "test@example.com",
+                "message": "[v1.2.4] When I try to jump on the main platform while holding the red key, the specific item disappears and my character gets stuck in the floor."
             },
             "expect_code": 200,
         },
         {
             "name": "✅  VALID   — Whitespace padding (should be trimmed)",
             "payload": {
-                "player_id": "   P-0001   ",
-                "game_version": "  v2.0.0  ",
-                "bug_description": "   The inventory screen freezes completely when opening it during a multiplayer match.   "
+                "name": "   P-0001   ",
+                "email": "  test@example.com  ",
+                "message": "   The inventory screen freezes completely when opening it during a multiplayer match.   "
             },
             "expect_code": 200,
         },
         {
             "name": "✅  VALID   — Different game version & player",
             "payload": {
-                "player_id": "P-7777",
-                "game_version": "v0.9.1-beta",
-                "bug_description": "Audio cuts out entirely after respawning in the third dungeon area near the boss room."
+                "name": "P-7777",
+                "email": "john.doe@email.com",
+                "message": "[v0.9.1-beta] Audio cuts out entirely after respawning in the third dungeon area near the boss room."
             },
             "expect_code": 200,
         },
         {
-            "name": "❌  INVALID — bug_description too short (≤10 chars)",
+            "name": "❌  INVALID — message too short (≤10 chars)",
             "payload": {
-                "player_id": "P-0002",
-                "game_version": "v1.0.0",
-                "bug_description": "crash"
+                "name": "P-0002",
+                "email": "test@example.com",
+                "message": "crash"
             },
             "expect_code": 400,
         },
         {
-            "name": "❌  INVALID — bug_description exactly 10 chars (boundary)",
+            "name": "❌  INVALID — message exactly 10 chars (boundary)",
             "payload": {
-                "player_id": "P-0003",
-                "game_version": "v1.0.0",
-                "bug_description": "1234567890"
+                "name": "P-0003",
+                "email": "test@example.com",
+                "message": "1234567890"
             },
             "expect_code": 400,
         },
         {
-            "name": "❌  INVALID — Missing required field (no player_id)",
+            "name": "❌  INVALID — Missing required field (no name)",
             "payload": {
-                "game_version": "v1.0.0",
-                "bug_description": "Game crashes on startup every time without any error message shown."
+                "email": "test@test.com",
+                "message": "Game crashes on startup every time without any error message shown."
             },
             "expect_code": 422,
         },
         {
-            "name": "❌  INVALID — Empty bug_description",
+            "name": "❌  INVALID — Empty message",
             "payload": {
-                "player_id": "P-0004",
-                "game_version": "v1.0.0",
-                "bug_description": ""
+                "name": "P-0004",
+                "email": "test@example.com",
+                "message": ""
+            },
+            "expect_code": 400,
+        },
+        {
+            "name": "❌  INVALID — Invalid email format",
+            "payload": {
+                "name": "P-0005",
+                "email": "invalidemail.com",
+                "message": "Trying to test the email validation logic with a bad email format."
             },
             "expect_code": 400,
         },
@@ -131,6 +137,7 @@ try:
                 if code == 200 and isinstance(body, dict):
                     print(f"     summary      : {body.get('summary')}")
                     print(f"     sheets_result: {body.get('sheets_result')}")
+                    print(f"     email_result : {body.get('email_result')}")
                 else:
                     print(f"     detail: {body}")
                 passed += 1

@@ -1,4 +1,4 @@
-# SE445 HW1 – Player Bug Report Categorizer
+# SE445 HW2 – Player Bug Report Categorizer
 **Bilgehan Günen | SE 445 Prompt Engineering**
 
 ## Overview
@@ -9,7 +9,7 @@ A FastAPI webhook pipeline that receives player bug reports, validates and proce
 | File | Purpose |
 |------|---------|
 | `server.py` | Main application — all 4 pipeline nodes implemented |
-| `test_request.py` | Automated integration tests (7 test cases) |
+| `test_request.py` | Automated integration tests (8 test cases) |
 | `workflow.json` | Workflow architecture definition |
 | `requirements.txt` | Python runtime dependencies |
 | `.env` *(not committed)* | `GEMINI_API_KEY=your_key_here` |
@@ -60,7 +60,7 @@ python test_request.py
 ```bash
 curl -X POST http://127.0.0.1:8080/webhook/bug-report \
   -H "Content-Type: application/json" \
-  -d "{\"player_id\": \"P-4921\", \"game_version\": \"v1.2.4\", \"bug_description\": \"When I try to jump on the main platform while holding the red key, the item disappears and my character gets stuck.\"}"
+  -d "{\"name\": \"P-4921\", \"email\": \"test@example.com\", \"message\": \"When I try to jump on the main platform while holding the red key, the item disappears and my character gets stuck.\"}"
 ```
 
 ### Interactive API docs (Swagger UI)
@@ -73,9 +73,9 @@ Visit: [http://127.0.0.1:8080/docs](http://127.0.0.1:8080/docs)
 **Request body:**
 ```json
 {
-  "player_id": "P-4921",
-  "game_version": "v1.2.4",
-  "bug_description": "Detailed description of the bug (must be > 10 characters)"
+  "name": "P-4921",
+  "email": "test@example.com",
+  "message": "Detailed description of the bug (must be > 10 characters)"
 }
 ```
 
@@ -85,10 +85,11 @@ Visit: [http://127.0.0.1:8080/docs](http://127.0.0.1:8080/docs)
   "status": "success",
   "timestamp": "2026-04-14T00:00:00+00:00",
   "summary": "AI-generated 10-word technical summary of the bug",
-  "sheets_result": "Row appended to 'SE445_Bug_Reports' spreadsheet."
+  "sheets_result": "Row appended to 'SE445_Bug_Reports' spreadsheet.",
+  "email_result": "Mock Email sent to test@example.com: 'We received your ticket'"
 }
 ```
 
-**Validation error (400):** Returned when `bug_description` is ≤ 10 characters.  
+**Validation error (400):** Returned when `message` is ≤ 10 characters or email format is invalid.  
 **Schema error (422):** Returned when required fields are missing.
 

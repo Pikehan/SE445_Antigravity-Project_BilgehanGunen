@@ -2,6 +2,10 @@ import os
 import glob
 import asyncio
 import gspread
+import traceback
+import smtplib
+import uvicorn
+from email.message import EmailMessage
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -33,19 +37,21 @@ CREDS_PATH = _creds_matches[0] if _creds_matches else "client_secret.json"
 app = FastAPI(title="Player Bug Report Categorizer")
 
 class BugReport(BaseModel):
-    player_id: str
-    game_version: str
-    bug_description: str
+    name: str
+    email: str
+    message: str
 
 def process_bug_report(report: BugReport):
     # 1. Trim whitespace
-    report.player_id = report.player_id.strip()
-    report.game_version = report.game_version.strip()
-    report.bug_description = report.bug_description.strip()
+    report.name = report.name.strip()
+    report.email = report.email.strip()
+    report.message = report.message.strip()
     
     # 2. Validate > 10 chars
-    if len(report.bug_description) <= 10:
-        raise HTTPException(status_code=400, detail="bug_description must be longer than 10 characters.")
+    if len(report.message) <= 10:
+        raise HTTPException(status_code=400, detail="message must be longer than 10 characters.")
+    if "@" not in report.email:
+        raise HTTPException(status_code=400, detail="Invalid email format.")
     
     # 3. Generate ISO timestamp
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -98,7 +104,7 @@ def _get_gspread_client() -> gspread.Client:
 
     return gspread.authorize(creds)
 
-async def actuate_to_google_sheets(timestamp: str, player_id: str, version: str, raw_desc: str, summary: str):
+async def actuate_to_google_sheets(timestamp: str, name: str, email: str, message: str, summary: str):
     """
     External API (Actuation) Node:
     Connects to Google Sheets via the Sheets API and appends the bug report row.
@@ -115,14 +121,42 @@ async def actuate_to_google_sheets(timestamp: str, player_id: str, version: str,
             spreadsheet = gc.create("SE445_Bug_Reports")
             sheet = spreadsheet.sheet1
             # Add header row
-            sheet.append_row(["Timestamp", "Player ID", "Version", "Raw Description", "AI Summary"])
+            sheet.append_row(["Timestamp", "Name", "Email", "Message", "AI Summary"])
 
         # Append the bug report row
-        sheet.append_row([timestamp, player_id, version, raw_desc, summary])
+        sheet.append_row([timestamp, name, email, message, summary])
         return f"Row appended to 'SE445_Bug_Reports' spreadsheet."
 
     result = await asyncio.to_thread(_write_to_sheet)
     return result
+
+async def send_acknowledgment_email(name: str, email: str):
+    """
+    Send an email acknowledgment back to the user.
+    Uses mock behavior if SMTP credentials are not provided.
+    """
+    smtp_email = os.environ.get("SMTP_EMAIL")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
+    
+    if not smtp_email or not smtp_password:
+        return f"Mock Email sent to {email}: 'We received your ticket'"
+
+    def _send():
+        msg = EmailMessage()
+        msg.set_content(f"Hi {name},\n\nWe received your ticket and our team will look into it shortly.\n\nBest,\nSupport Team")
+        msg["Subject"] = "We received your ticket"
+        msg["From"] = smtp_email
+        msg["To"] = email
+
+        try:
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                server.login(smtp_email, smtp_password)
+                server.send_message(msg)
+            return "Email sent successfully"
+        except Exception as e:
+            return f"Failed to send email: {e}"
+
+    return await asyncio.to_thread(_send)
 
 @app.post("/webhook/bug-report")
 async def handle_bug_report(report: BugReport):
@@ -131,30 +165,32 @@ async def handle_bug_report(report: BugReport):
         processed_report, timestamp = process_bug_report(report)
         
         # Step 2: AI Completion Node (Gemini)
-        summary = await summarize_with_gemini(processed_report.bug_description)
+        summary = await summarize_with_gemini(processed_report.message)
         
         # Step 3: External API / Actuation Node (Google Sheets via gspread)
         sheets_result = await actuate_to_google_sheets(
             timestamp=timestamp,
-            player_id=processed_report.player_id,
-            version=processed_report.game_version,
-            raw_desc=processed_report.bug_description,
+            name=processed_report.name,
+            email=processed_report.email,
+            message=processed_report.message,
             summary=summary
         )
+        
+        # Step 4: Email functionality
+        email_result = await send_acknowledgment_email(processed_report.name, processed_report.email)
         
         return {
             "status": "success",
             "timestamp": timestamp,
             "summary": summary,
-            "sheets_result": sheets_result
+            "sheets_result": sheets_result,
+            "email_result": email_result
         }
-    except HTTPException as e:
-        raise e
+    except HTTPException:
+        raise
     except Exception as e:
-        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run("server:app", host="127.0.0.1", port=8080)
