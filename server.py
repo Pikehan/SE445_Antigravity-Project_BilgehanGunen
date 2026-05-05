@@ -1,4 +1,5 @@
 import os
+import json
 import glob
 import asyncio
 import gspread
@@ -37,9 +38,9 @@ CREDS_PATH = _creds_matches[0] if _creds_matches else "client_secret.json"
 app = FastAPI(title="Player Bug Report Categorizer")
 
 class BugReport(BaseModel):
-    name: str
-    email: str
-    message: str
+    name: str = ""
+    email: str = ""
+    message: str = ""
 
 def process_bug_report(report: BugReport):
     # 1. Trim whitespace
@@ -47,31 +48,47 @@ def process_bug_report(report: BugReport):
     report.email = report.email.strip()
     report.message = report.message.strip()
     
-    # 2. Validate > 10 chars
-    if len(report.message) <= 10:
-        raise HTTPException(status_code=400, detail="message must be longer than 10 characters.")
-    if "@" not in report.email:
-        raise HTTPException(status_code=400, detail="Invalid email format.")
+    # 2. Validate
+    is_valid = True
+    if not report.name or not report.email or not report.message:
+        is_valid = False
+    elif len(report.message) <= 10:
+        is_valid = False
+    elif "@" not in report.email:
+        is_valid = False
     
     # 3. Generate ISO timestamp
     timestamp = datetime.now(timezone.utc).isoformat()
-    return report, timestamp
+    return report, timestamp, is_valid
 
-async def summarize_with_gemini(description: str) -> str:
+async def analyze_with_gemini(description: str) -> dict:
     # Requires google-genai package
     client = genai.Client()  # Assumes GEMINI_API_KEY is in env
     
-    system_prompt = "Act as a Lead QA Tester. Summarize this player bug report into a professional, exactly 10-word technical summary."
+    system_prompt = (
+        "Act as a Lead QA Tester. Analyze this player bug report and classify it.\n"
+        "Output ONLY valid JSON with exactly two keys: 'intent' and 'urgency'.\n"
+        "- 'intent' must be one of: 'Support', 'Sales', 'Partnership', or 'Bug Report'.\n"
+        "- 'urgency' must be one of: 'High', 'Medium', 'Low'.\n"
+    )
     
+    # If the description is empty (e.g. invalid report), provide a dummy text to avoid API errors
+    if not description:
+        description = "No message provided."
+        
     response = await client.aio.models.generate_content(
         model="gemini-2.5-flash",
         contents=description,
         config=genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.2,
+            response_mime_type="application/json"
         )
     )
-    return response.text.strip()
+    try:
+        return json.loads(response.text.strip())
+    except Exception:
+        return {"intent": "Unknown", "urgency": "Unknown"}
 
 def _get_gspread_client() -> gspread.Client:
     """Authenticate with Google and return a gspread client.
@@ -84,10 +101,18 @@ def _get_gspread_client() -> gspread.Client:
     if os.path.exists(TOKEN_PATH):
         creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
 
-    # If no valid credentials, perform OAuth flow
+        # If no valid credentials, perform OAuth flow
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                from google.auth.exceptions import RefreshError
+                creds.refresh(Request())
+            except RefreshError:
+                # Token expired/revoked, force re-login
+                if os.path.exists(TOKEN_PATH):
+                    os.remove(TOKEN_PATH)
+                flow = InstalledAppFlow.from_client_secrets_file(CREDS_PATH, SCOPES)
+                creds = flow.run_local_server(port=0)
         else:
             if not os.path.exists(CREDS_PATH):
                 raise FileNotFoundError(
@@ -104,7 +129,7 @@ def _get_gspread_client() -> gspread.Client:
 
     return gspread.authorize(creds)
 
-async def actuate_to_google_sheets(timestamp: str, name: str, email: str, message: str, summary: str):
+async def actuate_to_google_sheets(timestamp: str, name: str, email: str, message: str, is_valid: bool, intent: str, urgency: str):
     """
     External API (Actuation) Node:
     Connects to Google Sheets via the Sheets API and appends the bug report row.
@@ -121,10 +146,11 @@ async def actuate_to_google_sheets(timestamp: str, name: str, email: str, messag
             spreadsheet = gc.create("SE445_Bug_Reports")
             sheet = spreadsheet.sheet1
             # Add header row
-            sheet.append_row(["Timestamp", "Name", "Email", "Message", "AI Summary"])
+            sheet.append_row(["Timestamp", "Name", "Email", "Message", "Validation Status", "Intent", "Urgency"])
 
         # Append the bug report row
-        sheet.append_row([timestamp, name, email, message, summary])
+        validation_status = "Valid" if is_valid else "Invalid"
+        sheet.append_row([timestamp, name, email, message, validation_status, intent, urgency])
         return f"Row appended to 'SE445_Bug_Reports' spreadsheet."
 
     result = await asyncio.to_thread(_write_to_sheet)
@@ -162,10 +188,12 @@ async def send_acknowledgment_email(name: str, email: str):
 async def handle_bug_report(report: BugReport):
     try:
         # Step 1: Processing Node
-        processed_report, timestamp = process_bug_report(report)
+        processed_report, timestamp, is_valid = process_bug_report(report)
         
         # Step 2: AI Completion Node (Gemini)
-        summary = await summarize_with_gemini(processed_report.message)
+        ai_result = await analyze_with_gemini(processed_report.message)
+        intent = ai_result.get("intent", "Unknown")
+        urgency = ai_result.get("urgency", "Unknown")
         
         # Step 3: External API / Actuation Node (Google Sheets via gspread)
         sheets_result = await actuate_to_google_sheets(
@@ -173,7 +201,9 @@ async def handle_bug_report(report: BugReport):
             name=processed_report.name,
             email=processed_report.email,
             message=processed_report.message,
-            summary=summary
+            is_valid=is_valid,
+            intent=intent,
+            urgency=urgency
         )
         
         # Step 4: Email functionality
@@ -182,7 +212,9 @@ async def handle_bug_report(report: BugReport):
         return {
             "status": "success",
             "timestamp": timestamp,
-            "summary": summary,
+            "is_valid": is_valid,
+            "intent": intent,
+            "urgency": urgency,
             "sheets_result": sheets_result,
             "email_result": email_result
         }

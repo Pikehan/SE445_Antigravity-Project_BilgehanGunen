@@ -1,8 +1,8 @@
-# SE445 HW2 – Player Bug Report Categorizer
+# SE445 – Player Bug Report Categorizer
 **Bilgehan Günen | SE 445 Prompt Engineering**
 
 ## Overview
-A FastAPI webhook pipeline that receives player bug reports, validates and processes them, generates a professional AI summary using the Gemini API, and appends the results to a Google Sheet.
+A FastAPI webhook pipeline that receives player bug reports, validates and processes them, generates a professional AI classification (Intent and Urgency) using the Gemini API, and appends the results and metadata to a Google Sheet.
 
 
 ## Files
@@ -84,12 +84,25 @@ Visit: [http://127.0.0.1:8080/docs](http://127.0.0.1:8080/docs)
 {
   "status": "success",
   "timestamp": "2026-04-14T00:00:00+00:00",
-  "summary": "AI-generated 10-word technical summary of the bug",
+  "is_valid": true,
+  "intent": "Bug Report",
+  "urgency": "High",
   "sheets_result": "Row appended to 'SE445_Bug_Reports' spreadsheet.",
   "email_result": "Mock Email sent to test@example.com: 'We received your ticket'"
 }
 ```
 
-**Validation error (400):** Returned when `message` is ≤ 10 characters or email format is invalid.  
-**Schema error (422):** Returned when required fields are missing.
+**Invalid Request response (200):**  
+When `message` is ≤ 10 characters, email format is invalid, or required fields are missing, the API accepts the payload but flags it internally:
+```json
+{
+  "status": "success",
+  "timestamp": "2026-04-14T00:00:00+00:00",
+  "is_valid": false,
+  "intent": "Bug Report",
+  "urgency": "Low",
+  "sheets_result": "Row appended to 'SE445_Bug_Reports' spreadsheet.",
+  "email_result": "Mock Email sent to test@example.com: 'We received your ticket'"
+}
+```
 

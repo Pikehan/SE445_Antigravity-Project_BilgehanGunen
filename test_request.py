@@ -47,6 +47,7 @@ try:
                 "message": "[v1.2.4] When I try to jump on the main platform while holding the red key, the specific item disappears and my character gets stuck in the floor."
             },
             "expect_code": 200,
+            "expect_valid": True,
         },
         {
             "name": "✅  VALID   — Whitespace padding (should be trimmed)",
@@ -56,6 +57,7 @@ try:
                 "message": "   The inventory screen freezes completely when opening it during a multiplayer match.   "
             },
             "expect_code": 200,
+            "expect_valid": True,
         },
         {
             "name": "✅  VALID   — Different game version & player",
@@ -65,6 +67,7 @@ try:
                 "message": "[v0.9.1-beta] Audio cuts out entirely after respawning in the third dungeon area near the boss room."
             },
             "expect_code": 200,
+            "expect_valid": True,
         },
         {
             "name": "❌  INVALID — message too short (≤10 chars)",
@@ -73,7 +76,8 @@ try:
                 "email": "test@example.com",
                 "message": "crash"
             },
-            "expect_code": 400,
+            "expect_code": 200,
+            "expect_valid": False,
         },
         {
             "name": "❌  INVALID — message exactly 10 chars (boundary)",
@@ -82,7 +86,8 @@ try:
                 "email": "test@example.com",
                 "message": "1234567890"
             },
-            "expect_code": 400,
+            "expect_code": 200,
+            "expect_valid": False,
         },
         {
             "name": "❌  INVALID — Missing required field (no name)",
@@ -90,7 +95,8 @@ try:
                 "email": "test@test.com",
                 "message": "Game crashes on startup every time without any error message shown."
             },
-            "expect_code": 422,
+            "expect_code": 200,
+            "expect_valid": False,
         },
         {
             "name": "❌  INVALID — Empty message",
@@ -99,7 +105,8 @@ try:
                 "email": "test@example.com",
                 "message": ""
             },
-            "expect_code": 400,
+            "expect_code": 200,
+            "expect_valid": False,
         },
         {
             "name": "❌  INVALID — Invalid email format",
@@ -108,7 +115,8 @@ try:
                 "email": "invalidemail.com",
                 "message": "Trying to test the email validation logic with a bad email format."
             },
-            "expect_code": 400,
+            "expect_code": 200,
+            "expect_valid": False,
         },
     ]
 
@@ -133,14 +141,25 @@ try:
                 body = response.text
 
             if code == tc["expect_code"]:
-                print(f"  ✅ PASS  (HTTP {code})")
-                if code == 200 and isinstance(body, dict):
-                    print(f"     summary      : {body.get('summary')}")
-                    print(f"     sheets_result: {body.get('sheets_result')}")
-                    print(f"     email_result : {body.get('email_result')}")
+                # Check is_valid status if expected
+                is_valid = body.get("is_valid") if isinstance(body, dict) else None
+                expected_valid = tc.get("expect_valid")
+                
+                if expected_valid is not None and is_valid != expected_valid:
+                    print(f"  ❌ FAIL  (Expected is_valid={expected_valid}, got {is_valid})")
+                    print(f"     body: {body}")
+                    failed += 1
                 else:
-                    print(f"     detail: {body}")
-                passed += 1
+                    print(f"  ✅ PASS  (HTTP {code})")
+                    if code == 200 and isinstance(body, dict):
+                        print(f"     is_valid     : {body.get('is_valid')}")
+                        print(f"     intent       : {body.get('intent')}")
+                        print(f"     urgency      : {body.get('urgency')}")
+                        print(f"     sheets_result: {body.get('sheets_result')}")
+                        print(f"     email_result : {body.get('email_result')}")
+                    else:
+                        print(f"     detail: {body}")
+                    passed += 1
             else:
                 print(f"  ❌ FAIL  (expected HTTP {tc['expect_code']}, got {code})")
                 print(f"     body: {body}")
